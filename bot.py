@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import datetime
+import threading
+from flask import Flask
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telegram import Update
@@ -142,7 +144,25 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled. Send /start to begin again.")
     return ConversationHandler.END
 
+def run_health_check_server():
+    """Run a minimal Flask HTTP server for Render's health checks."""
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def health_check():
+        return "OK", 200
+    
+    # Get the port Render expects (default 10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
 def main():
+    # Start the health check server in a background thread
+    server_thread = threading.Thread(target=run_health_check_server)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Start the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
