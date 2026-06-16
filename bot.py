@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Telegram Session Generator Bot
+Works on Render (Web Service) and Railway (any service)
+"""
+
 import os
 import json
 import asyncio
@@ -21,7 +27,20 @@ if not API_ID or not API_HASH or not BOT_TOKEN:
 # Conversation states
 PHONE, CODE, PASSWORD = range(3)
 
+# ---------- Conversation Handlers ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start the conversation and clean up any previous session."""
+    # If there is an existing client in user_data, disconnect it
+    if 'client' in context.user_data:
+        try:
+            await context.user_data['client'].disconnect()
+        except:
+            pass
+        del context.user_data['client']
+    
+    # Clear any other stored data
+    context.user_data.clear()
+    
     await update.message.reply_text(
         "🔐 **Telegram Session Generator**\n\n"
         "I will help you create a session string for your Telegram account.\n"
@@ -34,6 +53,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHONE
 
 async def phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive phone number and send code request."""
     phone_number = update.message.text.strip()
     context.user_data['phone'] = phone_number
 
@@ -54,6 +74,7 @@ async def phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive verification code and try to sign in."""
     code = update.message.text.strip()
     client = context.user_data.get('client')
     phone = context.user_data['phone']
@@ -70,6 +91,7 @@ async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await client.disconnect()
             return ConversationHandler.END
 
+    # Authentication successful – generate session string
     session_string = client.session.save()
     me = await client.get_me()
     await client.disconnect()
@@ -91,7 +113,8 @@ async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=f,
             filename="credentials.json",
-            caption="✅ Here is your `credentials.json` file. Keep it safe!\n\nYou can now use this session string to authenticate with Telethon or other MTProto libraries."
+            caption="✅ Here is your `credentials.json` file. Keep it safe!\n\n"
+                    "You can now use this session string to authenticate with Telethon or other MTProto libraries."
         )
 
     os.remove(filename)
@@ -99,6 +122,7 @@ async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive 2FA password and complete sign in."""
     password = update.message.text.strip()
     client = context.user_data['client']
     phone = context.user_data['phone']
@@ -139,30 +163,31 @@ async def password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel the conversation."""
     if 'client' in context.user_data:
         await context.user_data['client'].disconnect()
     await update.message.reply_text("❌ Cancelled. Send /start to begin again.")
     return ConversationHandler.END
 
+# ---------- Health Check Server (for Render / Railway) ----------
 def run_health_check_server():
-    """Run a minimal Flask HTTP server for Render's health checks."""
+    """Run a minimal Flask HTTP server to satisfy platform health checks."""
     app = Flask(__name__)
     
     @app.route('/')
     def health_check():
         return "OK", 200
     
-    # Get the port Render expects (default 10000)
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
 
+# ---------- Main ----------
 def main():
-    # Start the health check server in a background thread
-    server_thread = threading.Thread(target=run_health_check_server)
-    server_thread.daemon = True
+    # Start the health check server in a background daemon thread
+    server_thread = threading.Thread(target=run_health_check_server, daemon=True)
     server_thread.start()
-    
-    # Start the Telegram bot
+
+    # Build and run the Telegram bot
     application = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
