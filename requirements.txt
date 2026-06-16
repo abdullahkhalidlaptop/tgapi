@@ -1,2 +1,3 @@
 python-telegram-bot>=21.0
 telethon>=1.37
+flask>=2.0.0
